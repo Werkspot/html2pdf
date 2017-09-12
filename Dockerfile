@@ -11,9 +11,6 @@ WORKDIR /app/html2pdf
 
 COPY wkhtmltopdf /usr/bin/wkhtmltopdf
 COPY index.js .
-COPY package.json .
+
 EXPOSE 8000
-
-RUN npm install
-
-ENTRYPOINT npm start
+ENTRYPOINT node index.js
