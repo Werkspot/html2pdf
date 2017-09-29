@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-docker run -d -p 80:8000 werkspot/html2pdf
