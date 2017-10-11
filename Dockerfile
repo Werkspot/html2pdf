@@ -1,7 +1,3 @@
-RUN cd /opt \
-    && wget https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.4/wkhtmltox-0.12.4_linux-generic-amd64.tar.xz \
-    && tar vxfJ wkhtmltox-0.12.4_linux-generic-amd64.tar.xz \
-    && ln -s /opt/wkhtmltox/bin/wkhtmltopdf /usr/bin/wkhtmltopdf
 FROM ubuntu:trusty
 
 RUN apt-get update \
@@ -13,6 +9,7 @@ RUN wget -O - https://deb.nodesource.com/setup_8.x | bash \
 
 WORKDIR /app/html2pdf
 
+COPY wkhtmltopdf /usr/bin/wkhtmltopdf
 COPY index.js .
 COPY package.json .
 EXPOSE 8000
