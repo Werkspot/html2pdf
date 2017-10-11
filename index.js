@@ -4,16 +4,25 @@ const options = {
     'printMediaType': true,
     'noOutline': true,
 };
-
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
     let body = [];
-    req.on('error', (err) => {
-        console.error(err);
-    }).on('data', (chunk) => {
+    req.on('data', (chunk) => {
         body.push(chunk);
     }).on('end', () => {
         body = Buffer.concat(body).toString();
-        wkhtmltopdf(body, options).pipe(res);
-        res.writeHead(200);
+
+        wkhtmltopdf(body, options, (err, stream) => {
+            if (err) {
+                res.writeHead(500);
+                res.end();
+            } else {
+                res.writeHead(200);
+                stream.pipe(res);
+            }
+        });
     });
+});
+
+server.on('clientError', (err) => {
+    console.error(err);
 }).listen(8000);
