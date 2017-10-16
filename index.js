@@ -1,19 +1,76 @@
 const http = require('http');
-const wkhtmltopdf = require('wkhtmltopdf');
-const options = {
-    'printMediaType': true,
-    'noOutline': true,
-};
+const spawn = require('child_process').spawn;
+const tempDir = require('os').tmpdir();
+const fileSystem = require('fs');
 
-http.createServer((req, res) => {
-    let body = [];
-    req.on('error', (err) => {
-        console.error(err);
-    }).on('data', (chunk) => {
-        body.push(chunk);
-    }).on('end', () => {
-        body = Buffer.concat(body).toString();
-        wkhtmltopdf(body, options).pipe(res);
-        res.writeHead(200);
+const server = http.createServer((request, response) => {
+    const requestBody = [];
+    const clientId = (Math.random() * 0x100000000 + 1).toString(36);
+
+    console.info({
+        'timestamp': (new Date).toISOString(),
+        'client': clientId,
+        'module': 'request',
+        'message': 'connected',
+    });
+
+    request.on('data', (chunk) => {
+        requestBody.push(chunk);
+    });
+
+    request.on('end', () => {
+        const tempFile = tempDir + '/' + clientId + '.pdf';
+        const wkhtmltopdf = spawn('wkhtmltopdf', [
+            '--quiet',
+            '--print-media-type',
+            '--no-outline',
+            '-',
+            tempFile,
+        ]);
+
+        wkhtmltopdf.stdin.end(
+            Buffer.concat(requestBody).toString()
+        );
+
+        wkhtmltopdf.on('exit', (code) => {
+            console.info({
+                'timestamp': (new Date).toISOString(),
+                'client': clientId,
+                'module': 'wkhtmltopdf',
+                'message': 'exitted with ' + code,
+            });
+
+            if (code !== 0) {
+                response.writeHead(500);
+                response.end();
+                return;
+            }
+
+            response.writeHead(200);
+            fileSystem.createReadStream(tempFile).pipe(response).on('end', () => {
+                fileSystem.unlinkSync(tempFile);
+            });
+        });
+
+        wkhtmltopdf.stderr.on('data', (chunk) => {
+            console.warn({
+                'timestamp': (new Date).toISOString(),
+                'client': clientId,
+                'module': 'wkhtmltopdf',
+                'message': chunk.toString(),
+            });
+        });
+    });
+
+    request.on('error', (error) => {
+        console.warn({
+            'timestamp': (new Date).toISOString(),
+            'client': clientId,
+            'module': 'request',
+            'message': error,
+        });
+
+        response.writeHead(400);
+        response.end();
     });
 }).listen(8000);
