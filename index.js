@@ -4,6 +4,10 @@ const tempDir = require('os').tmpdir();
 const fileSystem = require('fs');
 
 const server = http.createServer((request, response) => {
+    generatePdf(request, response);
+}).listen(8000);
+
+const generatePdf = (request, response) => {
     const requestBody = [];
     const clientId = (Math.random() * 0x100000000 + 1).toString(36);
 
@@ -73,4 +77,4 @@ const server = http.createServer((request, response) => {
         response.writeHead(400);
         response.end();
     });
-}).listen(8000);
+};
