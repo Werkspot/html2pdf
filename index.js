@@ -1,11 +1,26 @@
 const http = require('http');
+const urlParser = require('url').parse;
 const spawn = require('child_process').spawn;
 const tempDir = require('os').tmpdir();
 const fileSystem = require('fs');
 
 const server = http.createServer((request, response) => {
+    const requestPath = urlParser(request.url).pathname;
+
+    if (requestPath === '/health') {
+        return healthCheck(request, response);
+    }
+
     generatePdf(request, response);
 }).listen(8000);
+
+const healthCheck = (request, response) => {
+    response.writeHead(200, {
+        'Content-Type': 'text/plain',
+        'X-Powered-By': 'html2pdf'
+    });
+    response.end('ok');
+};
 
 const generatePdf = (request, response) => {
     const requestBody = [];
