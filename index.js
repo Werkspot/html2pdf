@@ -22,22 +22,40 @@ const healthCheck = (request, response) => {
     response.end('ok');
 };
 
+const log = (level, jsonMessage) => {
+    console.log(JSON.stringify(
+        Object.assign(
+            {'level': level},
+            jsonMessage
+        )
+    ));
+}
+
 const generatePdf = (request, response) => {
-    const requestBody = [];
+    const requestBodyStream = [];
     const clientId = (Math.random() * 0x100000000 + 1).toString(36);
 
-    console.info({
+    log('info', {
         'timestamp': (new Date).toISOString(),
         'client': clientId,
         'module': 'request',
-        'message': 'connected',
+        'message': 'Connected',
     });
 
     request.on('data', (chunk) => {
-        requestBody.push(chunk);
+        requestBodyStream.push(chunk);
     });
 
     request.on('end', () => {
+        const requestBody = Buffer.concat(requestBodyStream).toString();
+
+        log('debug', {
+            'timestamp': (new Date).toISOString(),
+            'client': clientId,
+            'module': 'request',
+            'message': 'Received a payload of ' + Buffer.byteLength(requestBody, 'utf8') + ' bytes',
+        });
+
         const tempFile = tempDir + '/' + clientId + '.pdf';
         const wkhtmltopdf = spawn('wkhtmltopdf', [
             '--quiet',
@@ -47,16 +65,14 @@ const generatePdf = (request, response) => {
             tempFile,
         ]);
 
-        wkhtmltopdf.stdin.end(
-            Buffer.concat(requestBody).toString()
-        );
+        wkhtmltopdf.stdin.end(requestBody);
 
         wkhtmltopdf.on('exit', (code) => {
-            console.info({
+            log('info', {
                 'timestamp': (new Date).toISOString(),
                 'client': clientId,
                 'module': 'wkhtmltopdf',
-                'message': 'exitted with ' + code,
+                'message': 'Exitted with code ' + code,
             });
 
             if (code !== 0) {
@@ -65,6 +81,15 @@ const generatePdf = (request, response) => {
                 return;
             }
 
+            const tempFileSize = fileSystem.statSync(tempFile).size;
+
+            log('debug', {
+                'timestamp': (new Date).toISOString(),
+                'client': clientId,
+                'module': 'wkhtmltopdf',
+                'message': 'Generated a PDF of ' + tempFileSize + ' bytes',
+            });
+
             response.writeHead(200);
             fileSystem.createReadStream(tempFile).pipe(response).on('end', () => {
                 fileSystem.unlinkSync(tempFile);
@@ -72,7 +97,7 @@ const generatePdf = (request, response) => {
         });
 
         wkhtmltopdf.stderr.on('data', (chunk) => {
-            console.warn({
+            log('warn', {
                 'timestamp': (new Date).toISOString(),
                 'client': clientId,
                 'module': 'wkhtmltopdf',
@@ -82,7 +107,7 @@ const generatePdf = (request, response) => {
     });
 
     request.on('error', (error) => {
-        console.warn({
+        log('warn', {
             'timestamp': (new Date).toISOString(),
             'client': clientId,
             'module': 'request',
