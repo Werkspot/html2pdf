@@ -82,18 +82,28 @@ const generatePdf = (request, response) => {
             }
 
             const tempFileSize = fileSystem.statSync(tempFile).size;
+            const readStream = fileSystem.createReadStream(tempFile);
 
             log('debug', {
                 'timestamp': (new Date).toISOString(),
                 'client': clientId,
                 'module': 'wkhtmltopdf',
-                'message': 'Generated a PDF of ' + tempFileSize + ' bytes',
+                'message': 'Generated a PDF of ' + tempFileSize + ' bytes at ' + tempFile,
+            });
+
+            readStream.on('close', () => {
+                fileSystem.unlinkSync(tempFile);
+
+                log('debug', {
+                    'timestamp': (new Date).toISOString(),
+                    'client': clientId,
+                    'module': 'request',
+                    'message': 'Removed temporary file ' + tempFile,
+                });
             });
 
             response.writeHead(200);
-            fileSystem.createReadStream(tempFile).pipe(response).on('end', () => {
-                fileSystem.unlinkSync(tempFile);
-            });
+            readStream.pipe(response);
         });
 
         wkhtmltopdf.stderr.on('data', (chunk) => {
