@@ -9,6 +9,7 @@ RUN wget -O - https://deb.nodesource.com/setup_8.x | bash \
 
 WORKDIR /app/html2pdf
 
+USER nobody
 COPY wkhtmltopdf /usr/bin/wkhtmltopdf
 COPY index.js .
 
