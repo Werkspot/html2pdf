@@ -3,6 +3,7 @@ const urlParser = require('url').parse;
 const spawn = require('child_process').spawn;
 const tempDir = require('os').tmpdir();
 const fileSystem = require('fs');
+const path = require('path');
 
 const server = http.createServer((request, response) => {
     const requestPath = urlParser(request.url).pathname;
@@ -31,6 +32,44 @@ const log = (level, jsonMessage) => {
     ));
 }
 
+const writeTempFile = (fileName, content) => {
+    return new Promise((resolve, reject) => {
+        const tempFile = path.join(tempDir, fileName);
+        fileSystem.writeFile(tempFile, content, 'utf8', (error) => {
+            if (error) {
+                return reject(error);
+            }
+            resolve(tempFile);
+        });
+    });
+}
+
+const createTempHeader = (clientId, content) => {
+    return writeTempFile(clientId + 'header.html', content);
+}
+
+const createTempFooter = (clientId, content) => {
+    return writeTempFile(clientId + 'footer.html', content);
+}
+
+const parseBody = (requestBody) => {
+    try {
+        const request = JSON.parse(requestBody);
+        return {
+            header: request.header || '',
+            body: request.body || '',
+            footer: request.footer || '',
+        };
+    } catch (error) {
+        // notice: fallback to only body generation
+        return {
+            header: '',
+            footer: '',
+            body: requestBody,
+        };
+    }
+}
+
 const generatePdf = (request, response) => {
     const requestBodyStream = [];
     const clientId = (Math.random() * 0x100000000 + 1).toString(36);
@@ -48,72 +87,119 @@ const generatePdf = (request, response) => {
 
     request.on('end', () => {
         const requestBody = Buffer.concat(requestBodyStream).toString();
+        const params = ['--quiet', '--print-media-type', '--no-outline', '-'];
 
-        log('debug', {
-            'timestamp': (new Date).toISOString(),
-            'client': clientId,
-            'module': 'request',
-            'message': 'Received a payload of ' + Buffer.byteLength(requestBody, 'utf8') + ' bytes',
-        });
+        const { header, body, footer } = parseBody(requestBody);
+        const promises = [];
 
-        const tempFile = tempDir + '/' + clientId + '.pdf';
-        const wkhtmltopdf = spawn('wkhtmltopdf', [
-            '--quiet',
-            '--print-media-type',
-            '--no-outline',
-            '-',
-            tempFile,
-        ]);
+        promises.push(
+            !!header
+                ? createTempHeader(clientId, header)
+                : Promise.resolve('')
+        );
 
-        wkhtmltopdf.stdin.end(requestBody);
+        promises.push(
+            !!footer
+                ? createTempFooter(clientId, footer)
+                : Promise.resolve('')
+        );
 
-        wkhtmltopdf.on('exit', (code) => {
-            log('info', {
-                'timestamp': (new Date).toISOString(),
-                'client': clientId,
-                'module': 'wkhtmltopdf',
-                'message': 'Exitted with code ' + code,
-            });
+        Promise.all(promises).then((data) => {
+            const headerTempFile = data[0];
+            const footerTempFile = data[1];
 
-            if (code !== 0) {
-                response.writeHead(500);
-                response.end();
-                return;
-            }
+          if (!!headerTempFile) {
+              params.push('--header-html');
+              params.push(headerTempFile);
+          }
 
-            const tempFileSize = fileSystem.statSync(tempFile).size;
-            const readStream = fileSystem.createReadStream(tempFile);
+          if (!!footerTempFile) {
+              params.push('--footer-html');
+              params.push(footerTempFile);
+          }
 
-            log('debug', {
-                'timestamp': (new Date).toISOString(),
-                'client': clientId,
-                'module': 'wkhtmltopdf',
-                'message': 'Generated a PDF of ' + tempFileSize + ' bytes at ' + tempFile,
-            });
+          log('debug', {
+              'timestamp': (new Date).toISOString(),
+              'client': clientId,
+              'module': 'request',
+              'message': 'Received a payload of ' + Buffer.byteLength(requestBody, 'utf8') + ' bytes',
+          });
 
-            readStream.on('close', () => {
-                fileSystem.unlinkSync(tempFile);
+          const tempFile = tempDir + '/' + clientId + '.pdf';
+          params.push(tempFile);
 
-                log('debug', {
-                    'timestamp': (new Date).toISOString(),
-                    'client': clientId,
-                    'module': 'request',
-                    'message': 'Removed temporary file ' + tempFile,
-                });
-            });
+          const wkhtmltopdf = spawn('wkhtmltopdf', params);
 
-            response.writeHead(200);
-            readStream.pipe(response);
-        });
+          wkhtmltopdf.stdin.end(body);
 
-        wkhtmltopdf.stderr.on('data', (chunk) => {
-            log('warn', {
-                'timestamp': (new Date).toISOString(),
-                'client': clientId,
-                'module': 'wkhtmltopdf',
-                'message': chunk.toString(),
-            });
-        });
+          wkhtmltopdf.on('exit', (code) => {
+              log('info', {
+                  'timestamp': (new Date).toISOString(),
+                  'client': clientId,
+                  'module': 'wkhtmltopdf',
+                  'message': 'Exitted with code ' + code,
+              });
+
+              if (code !== 0) {
+                  response.writeHead(500);
+                  response.end();
+                  return;
+              }
+
+              const tempFileSize = fileSystem.statSync(tempFile).size;
+              const readStream = fileSystem.createReadStream(tempFile);
+
+              log('debug', {
+                  'timestamp': (new Date).toISOString(),
+                  'client': clientId,
+                  'module': 'wkhtmltopdf',
+                  'message': 'Generated a PDF of ' + tempFileSize + ' bytes at ' + tempFile,
+              });
+
+              readStream.on('close', () => {
+                  const tempFiles = [tempFile];
+                  fileSystem.unlinkSync(tempFile);
+                  if (headerTempFile) {
+                      fileSystem.unlinkSync(headerTempFile);
+                      tempFiles.push(headerTempFile);
+                  }
+                  if (footerTempFile) {
+                      fileSystem.unlinkSync(footerTempFile);
+                      tempFiles.push(footerTempFile);
+                  }
+
+                  log('debug', {
+                      'timestamp': (new Date).toISOString(),
+                      'client': clientId,
+                      'module': 'request',
+                      'message': 'Removed temporary files: ' + tempFiles.join(", "),
+                  });
+              });
+
+              response.writeHead(200);
+              readStream.pipe(response);
+          });
+
+          wkhtmltopdf.stderr.on('data', (chunk) => {
+              log('warn', {
+                  'timestamp': (new Date).toISOString(),
+                  'client': clientId,
+                  'module': 'wkhtmltopdf',
+                  'message': chunk.toString(),
+              });
+          });
+        }).catch((error) => {
+          log('warn', {
+              'timestamp': (new Date).toISOString(),
+              'client': clientId,
+              'module': 'promises',
+              'message': error,
+          });
+
+          response.writeHead(400);
+          response.end();
+          });
+
     });
 
     request.on('error', (error) => {
